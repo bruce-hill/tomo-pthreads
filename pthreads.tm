@@ -1,72 +1,96 @@
 # A Posix Threads (pthreads) wrapper
 use <pthread.h>
 
-struct pthread_mutex_t(; extern, opaque)
-    func new(->@pthread_mutex_t)
-        return C_code : @pthread_mutex_t(
-            pthread_mutex_t *mutex = GC_MALLOC(sizeof(pthread_mutex_t));
-            pthread_mutex_init(mutex, NULL);
-            GC_register_finalizer(mutex, (void*)pthread_mutex_destroy, NULL, NULL, NULL);
-            mutex
+struct Mutex(_mutex:@Memory)
+    func new(->Mutex)
+        return Mutex(
+            C_code : @Memory`
+                pthread_mutex_t *mutex = GC_MALLOC(sizeof(pthread_mutex_t));
+                pthread_mutex_init(mutex, NULL);
+                GC_register_finalizer(mutex, (void*)pthread_mutex_destroy, NULL, NULL, NULL);
+                mutex
+            `
         )
 
-    func lock(m:&pthread_mutex_t)
-        fail("Failed to lock mutex") unless C_code:Int32(pthread_mutex_lock(@m)) == 0
+    func lock(m:Mutex)
+        status := C_code:Int32`pthread_mutex_lock(@(m._mutex))`
+        fail("Failed to lock Mutex") unless status == 0
 
-    func unlock(m:&pthread_mutex_t)
-        fail("Failed to unlock mutex") unless C_code:Int32(pthread_mutex_unlock(@m)) == 0
+    func unlock(m:Mutex)
+        status := C_code:Int32`pthread_mutex_unlock(@(m._mutex))`
+        fail("Failed to unlock Mutex") unless status == 0
 
-struct pthread_cond_t(; extern, opaque)
-    func new(->@pthread_cond_t)
-        return C_code : @pthread_cond_t(
-            pthread_cond_t *cond = GC_MALLOC(sizeof(pthread_cond_t));
-            pthread_cond_init(cond, NULL);
-            GC_register_finalizer(cond, (void*)pthread_cond_destroy, NULL, NULL, NULL);
-            cond
+struct Condition(_cond:@Memory)
+    func new(->Condition)
+        return Condition(
+            C_code : @Memory `
+                pthread_cond_t *cond = GC_MALLOC(sizeof(pthread_cond_t));
+                pthread_cond_init(cond, NULL);
+                GC_register_finalizer(cond, (void*)pthread_cond_destroy, NULL, NULL, NULL);
+                cond
+            `
         )
 
-    func wait(cond:&pthread_cond_t, mutex:&pthread_mutex_t)
-        fail("Failed to wait on condition") unless C_code:Int32(pthread_cond_wait(@cond, @mutex)) == 0
+    func wait(cond:Condition, mutex:Mutex)
+        status := C_code:Int32`pthread_cond_wait(@(cond._cond), @(mutex._mutex))`
+        fail("Failed to wait on Condition") unless status == 0
 
-    func signal(cond:&pthread_cond_t)
-        fail("Failed to signal pthread_cond_t") unless C_code:Int32(pthread_cond_signal(@cond)) == 0
+    func signal(cond:Condition)
+        status := C_code:Int32`pthread_cond_signal(@(cond._cond))`
+        fail("Failed to signal Condition") unless status == 0
 
-    func broadcast(cond:&pthread_cond_t)
-        fail("Failed to broadcast pthread_cond_t") unless C_code:Int32(pthread_cond_broadcast(@cond)) == 0
+    func broadcast(cond:Condition)
+        status := C_code:Int32`pthread_cond_broadcast(@(cond._cond))`
+        fail("Failed to broadcast Condition") unless status == 0
 
-struct pthread_rwlock_t(; extern, opaque)
-    func new(->@pthread_rwlock_t)
-        return C_code : @pthread_rwlock_t (
-            pthread_rwlock_t *lock = GC_MALLOC(sizeof(pthread_rwlock_t));
-            pthread_rwlock_init(lock, NULL);
-            GC_register_finalizer(lock, (void*)pthread_rwlock_destroy, NULL, NULL, NULL);
-            lock
+struct RWLock(_rwlock:@Memory)
+    func new(->RWLock)
+        return RWLock(
+            C_code : @Memory `
+                pthread_rwlock_t *lock = GC_MALLOC(sizeof(pthread_rwlock_t));
+                pthread_rwlock_init(lock, NULL);
+                GC_register_finalizer(lock, (void*)pthread_rwlock_destroy, NULL, NULL, NULL);
+                lock
+            `
         )
 
-    func read_lock(lock:&pthread_rwlock_t)
-        C_code { pthread_rwlock_rdlock(@lock); }
+    func read_lock(lock:RWLock)
+        status := C_code:Int32 `pthread_rwlock_rdlock(@(lock._rwlock))`
+        fail("Failed to read-lock RWLock") unless status == 0
 
-    func write_lock(lock:&pthread_rwlock_t)
-        C_code { pthread_rwlock_wrlock(@lock); }
+    func write_lock(lock:RWLock)
+        status := C_code:Int32 `pthread_rwlock_wrlock(@(lock._rwlock))`
+        fail("Failed to write-lock RWLock") unless status == 0
 
-    func unlock(lock:&pthread_rwlock_t)
-        C_code { pthread_rwlock_unlock(@lock); }
+    func unlock(lock:RWLock)
+        status := C_code:Int32 `pthread_rwlock_unlock(@(lock._rwlock))`
+        fail("Failed to unlock RWLock") unless status == 0
 
-struct pthread_t(; extern, opaque)
-    func new(fn:func() -> @pthread_t)
-        return C_code:@pthread_t(
-            pthread_t *thread = GC_MALLOC(sizeof(pthread_t));
-            pthread_create(thread, NULL, @fn.fn, @fn.userdata);
-            thread
+struct PThread(_pthread:@Memory)
+    func new(fn:func() -> PThread)
+        return PThread(
+            C_code:@Memory `
+                pthread_t *thread = GC_MALLOC(sizeof(pthread_t));
+                pthread_create(thread, NULL, @fn.fn, @fn.userdata);
+                thread
+            `
         )
 
-    func join(p:pthread_t) C_code { pthread_join(@p, NULL); }
-    func cancel(p:pthread_t) C_code { pthread_cancel(@p); }
-    func detatch(p:pthread_t) C_code { pthread_detach(@p); }
+    func join(p:PThread)
+        status := C_code:Int32 `pthread_join(*(pthread_t*)@(p._pthread), NULL)`
+        fail("Failed to cancel PThread") if status != 0
 
-struct IntQueue(_queue:@[Int], _mutex:@pthread_mutex_t, _cond:@pthread_cond_t)
+    func cancel(p:PThread)
+        status := C_code:Int32 `pthread_cancel(*(pthread_t*)@(p._pthread))`
+        fail("Failed to cancel PThread") if status != 0
+
+    func detatch(p:PThread)
+        status := C_code:Int32 `pthread_detach(*(pthread_t*)@(p._pthread))`
+        fail("Failed to detatch PThread") if status != 0
+
+struct IntQueue(_queue:@[Int], _mutex:Mutex, _cond:Condition)
     func new(initial:[Int]=[] -> IntQueue)
-        return IntQueue(@initial, pthread_mutex_t.new(), pthread_cond_t.new())
+        return IntQueue(@initial, Mutex.new(), Condition.new())
 
     func give(q:IntQueue, n:Int)
         do q._mutex.lock()
@@ -87,13 +111,13 @@ func main()
     jobs := IntQueue.new()
     results := IntQueue.new()
 
-    say_mutex := pthread_mutex_t.new()
+    say_mutex := Mutex.new()
     announce := func(speaker:Text, text:Text)
         do say_mutex.lock()
             say("\[2][$speaker]\[] $text")
             say_mutex.unlock()
 
-    worker := pthread_t.new(func()
+    worker := PThread.new(func()
         say("I'm in the thread!")
         repeat
             announce("worker", "waiting for job")
